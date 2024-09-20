@@ -36,7 +36,12 @@ sessionRouter.use(middleware.apikey)
 sessionRouter.use(middleware.sessionSwagger)
 routes.use('/session', sessionRouter)
 
-sessionRouter.get('/start/:sessionId', middleware.sessionNameValidation, sessionController.startSession)
+// Modifichiamo questa riga per includere il parametro webhookURL nella query
+sessionRouter.get('/start/:sessionId', middleware.sessionNameValidation, (req, res) => {
+  const { webhookURL } = req.query
+  sessionController.startSession(req, res, webhookURL)
+})
+
 sessionRouter.get('/status/:sessionId', middleware.sessionNameValidation, sessionController.statusSession)
 sessionRouter.get('/qr/:sessionId', middleware.sessionNameValidation, sessionController.sessionQrCode)
 sessionRouter.get('/qr/:sessionId/image', middleware.sessionNameValidation, sessionController.sessionQrCodeImage)
@@ -44,6 +49,12 @@ sessionRouter.get('/restart/:sessionId', middleware.sessionNameValidation, sessi
 sessionRouter.get('/terminate/:sessionId', middleware.sessionNameValidation, sessionController.terminateSession)
 sessionRouter.get('/terminateInactive', sessionController.terminateInactiveSessions)
 sessionRouter.get('/terminateAll', sessionController.terminateAllSessions)
+
+// Aggiungiamo nuovamente la route per impostare il webhook
+sessionRouter.post('/setWebhook/:sessionId', middleware.sessionNameValidation, sessionController.setWebhook)
+
+// Aggiungiamo la nuova route per ottenere l'URL del webhook corrente
+sessionRouter.get('/getWebhook/:sessionId', middleware.sessionNameValidation, sessionController.getWebhook)
 
 /**
  * ================
@@ -178,6 +189,7 @@ contactRouter.post('/unblock/:sessionId', [middleware.sessionNameValidation, mid
 contactRouter.post('/getFormattedNumber/:sessionId', [middleware.sessionNameValidation, middleware.sessionValidation], contactController.getFormattedNumber)
 contactRouter.post('/getCountryCode/:sessionId', [middleware.sessionNameValidation, middleware.sessionValidation], contactController.getCountryCode)
 contactRouter.post('/getProfilePicUrl/:sessionId', [middleware.sessionNameValidation, middleware.sessionValidation], contactController.getProfilePicUrl)
+
 /**
  * ================
  * SWAGGER ENDPOINTS

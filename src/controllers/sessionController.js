@@ -1,6 +1,6 @@
 const qr = require('qr-image')
 const { setupSession, deleteSession, reloadSession, validateSession, flushSessions, sessions } = require('../sessions')
-const { sendErrorResponse, waitForNestedObject } = require('../utils')
+const { sendErrorResponse, waitForNestedObject, setCustomWebhook, getCustomWebhook } = require('../utils')
 
 /**
  * Starts a session for the given session ID.
@@ -15,9 +15,11 @@ const { sendErrorResponse, waitForNestedObject } = require('../utils')
  */
 const startSession = async (req, res) => {
   // #swagger.summary = 'Start new session'
-  // #swagger.description = 'Starts a session for the given session ID.'
+  // #swagger.description = 'Starts a session for the given session ID and optionally sets a custom webhook.'
   try {
     const sessionId = req.params.sessionId
+    const { webhookURL } = req.query
+
     const setupSessionReturn = setupSession(sessionId)
     if (!setupSessionReturn.success) {
       /* #swagger.responses[422] = {
@@ -32,6 +34,20 @@ const startSession = async (req, res) => {
       sendErrorResponse(res, 422, setupSessionReturn.message)
       return
     }
+
+    // Utilizziamo il webhook personalizzato se fornito, altrimenti usiamo quello predefinito
+    const webhookToUse = webhookURL || process.env.BASE_WEBHOOK_URL
+
+    if (webhookToUse) {
+      const webhookSetSuccess = await setCustomWebhook(sessionId, webhookToUse)
+      if (!webhookSetSuccess) {
+        console.warn(`Failed to set webhook for session ${sessionId}`)
+        // Continuiamo con l'avvio della sessione anche se l'impostazione del webhook fallisce
+      }
+    } else {
+      console.warn(`No webhook URL provided for session ${sessionId}`)
+    }
+
     /* #swagger.responses[200] = {
       description: "Status of the initiated session.",
       content: {
@@ -43,7 +59,13 @@ const startSession = async (req, res) => {
     */
     // wait until the client is created
     waitForNestedObject(setupSessionReturn.client, 'pupPage')
-      .then(res.json({ success: true, message: setupSessionReturn.message }))
+      .then(() => {
+        res.json({
+          success: true,
+          message: setupSessionReturn.message,
+          webhookSet: !!webhookToUse
+        })
+      })
       .catch((err) => { sendErrorResponse(res, 500, err.message) })
   } catch (error) {
   /* #swagger.responses[500] = {
@@ -363,6 +385,47 @@ const terminateAllSessions = async (req, res) => {
   }
 }
 
+const setWebhook = async (req, res) => {
+  // #swagger.summary = 'Set custom webhook for session'
+  // #swagger.description = 'Sets a custom webhook URL for the given session ID.'
+  try {
+    const sessionId = req.params.sessionId
+    const { webhookURL } = req.query
+
+    if (!webhookURL) {
+      return sendErrorResponse(res, 400, 'webhookURL is required')
+    }
+
+    const webhookSetSuccess = await setCustomWebhook(sessionId, webhookURL)
+    if (webhookSetSuccess) {
+      res.json({ success: true, message: 'Custom webhook set successfully' })
+    } else {
+      sendErrorResponse(res, 500, 'Failed to set custom webhook')
+    }
+  } catch (error) {
+    console.log('setWebhook ERROR', error)
+    sendErrorResponse(res, 500, error.message)
+  }
+}
+
+const getWebhook = async (req, res) => {
+  // #swagger.summary = 'Get current webhook URL for session'
+  // #swagger.description = 'Retrieves the current webhook URL for the given session ID.'
+  try {
+    const sessionId = req.params.sessionId
+    const webhookURL = await getCustomWebhook(sessionId)
+
+    if (webhookURL) {
+      res.json({ success: true, webhookURL })
+    } else {
+      res.json({ success: true, message: 'No custom webhook set for this session', webhookURL: process.env.BASE_WEBHOOK_URL })
+    }
+  } catch (error) {
+    console.log('getWebhook ERROR', error)
+    sendErrorResponse(res, 500, error.message)
+  }
+}
+
 module.exports = {
   startSession,
   statusSession,
@@ -371,5 +434,7 @@ module.exports = {
   restartSession,
   terminateSession,
   terminateInactiveSessions,
-  terminateAllSessions
+  terminateAllSessions,
+  setWebhook,
+  getWebhook
 }

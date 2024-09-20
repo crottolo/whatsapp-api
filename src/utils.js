@@ -1,10 +1,15 @@
 const axios = require('axios')
 const { globalApiKey, disabledCallbacks } = require('./config')
+const fs = require('fs').promises
+const path = require('path')
 
 // Trigger webhook endpoint
-const triggerWebhook = (webhookURL, sessionId, dataType, data) => {
+const triggerWebhook = async (defaultWebhookURL, sessionId, dataType, data) => {
+  const customWebhookURL = await getCustomWebhook(sessionId)
+  const webhookURL = customWebhookURL || defaultWebhookURL
+
   axios.post(webhookURL, { dataType, data, sessionId }, { headers: { 'x-api-key': globalApiKey } })
-    .catch(error => console.error('Failed to send new message webhook:', sessionId, dataType, error.message, data || ''))
+    .catch(error => console.error('Failed to send webhook:', sessionId, dataType, error.message, data || ''))
 }
 
 // Function to send a response with error status and message
@@ -38,9 +43,40 @@ const checkIfEventisEnabled = (event) => {
   return new Promise((resolve, reject) => { if (!disabledCallbacks.includes(event)) { resolve() } })
 }
 
+const setCustomWebhook = async (sessionId, webhookURL) => {
+  const sessionDir = path.join(__dirname, '..', 'sessions', `session-${sessionId}`)
+  const webhookFile = path.join(sessionDir, 'webhook.txt')
+
+  try {
+    await fs.mkdir(sessionDir, { recursive: true })
+    await fs.writeFile(webhookFile, webhookURL)
+    console.log(`Custom webhook set for session ${sessionId}`)
+    return true
+  } catch (error) {
+    console.error(`Failed to set custom webhook for session ${sessionId}:`, error)
+    return false
+  }
+}
+
+const getCustomWebhook = async (sessionId) => {
+  const webhookFile = path.join(__dirname, '..', 'sessions', `session-${sessionId}`, 'webhook.txt')
+
+  try {
+    const webhookURL = await fs.readFile(webhookFile, 'utf-8')
+    return webhookURL.trim()
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error(`Error reading custom webhook for session ${sessionId}:`, error)
+    }
+    return null
+  }
+}
+
 module.exports = {
   triggerWebhook,
   sendErrorResponse,
   waitForNestedObject,
-  checkIfEventisEnabled
+  checkIfEventisEnabled,
+  setCustomWebhook,
+  getCustomWebhook
 }
